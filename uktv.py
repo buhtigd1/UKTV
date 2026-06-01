@@ -14,7 +14,7 @@ from datetime import datetime
 
 # ========== CONFIG ==========
 
-EPG_URL = "https://epg.pw/xmltv.xml"
+EPG_URL = "https://epg.pw/xmltv/epg_GB.xml.gz"
 
 EXCLUDE_KEYWORDS = ["test", "xxx", "adult", "18+", "erotic"]
 
