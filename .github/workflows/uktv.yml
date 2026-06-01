@@ -2,7 +2,7 @@ name: Generate UKTV Playlist
 
 on:
   schedule:
-    - cron: '0 */4 * * *'   # Every 4 hours
+    - cron: '7 * * * *'
   workflow_dispatch:
 
 jobs:
