@@ -1,4 +1,4 @@
-name: ▶️ Generate UKTV Playlist
+name: Generate UKTV Playlist
 
 on:
   schedule:
@@ -43,7 +43,7 @@ jobs:
           git add -A
 
           # ✅ Commit only if there are changes
-          git diff --quiet && git diff --staged --quiet || git commit -m "Update uktv.m3u $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update $(date -u +'%Y-%m-%d %H:%M UTC')"
 
           # ✅ Pull latest changes and push
           git pull --rebase origin ${{ github.ref_name }}
