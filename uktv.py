@@ -3,7 +3,7 @@
 Stalker to M3U converter
 
 Output:
-  uktv.m3u - UK English live TV
+  uktv.m3u - UK live TV
 """
 
 import os
@@ -15,22 +15,37 @@ from datetime import datetime
 
 EPG_URL = "https://epg.pw/xmltv.xml"
 
-REGION_KEYWORDS = [
-    "| uk", "|uk", "(uk)", "| gb", "|gb", "(gb)",
-    "bbc", "itv", "sky", "channel 4", "channel 5"
-]
+DROP_SD = False
+SD_KEYWORDS = ["| sd", "(sd)", " sd ", "576p", "480p", "360p"]
 
 EXCLUDE_KEYWORDS = ["test", "xxx", "adult", "18+", "erotic"]
+
+# ✅ Strong UK detection
+UK_KEYWORDS = [
+    "uk", "gb", "eng", "english",
+    "bbc", "itv", "sky", "bt sport",
+    "channel 4", "channel 5",
+    "dave", "gold", "yesterday", "film4",
+    "sky sports", "sky cinema"
+]
 
 # ========== FILTERS ==========
 
 def is_uk(name, group):
     text = (name + " " + group).lower()
-    return any(k in text for k in REGION_KEYWORDS)
+    return any(k in text for k in UK_KEYWORDS)
 
 def should_exclude(name, group):
     text = (name + " " + group).lower()
-    return any(k in text for k in EXCLUDE_KEYWORDS)
+
+    if any(k in text for k in EXCLUDE_KEYWORDS):
+        return True
+
+    if DROP_SD:
+        if any(k in (" " + name.lower() + " ") for k in SD_KEYWORDS):
+            return True
+
+    return False
 
 # ========== STALKER CLIENT ==========
 
@@ -54,7 +69,7 @@ class StalkerLite:
             if r.status_code == 200:
                 data = r.json()
                 return data.get("js") if "js" in data else data
-        except:
+        except Exception:
             pass
         return None
 
@@ -63,10 +78,13 @@ class StalkerLite:
         data = self._get(url)
         if not data:
             return []
-        return data.get("data", data) if isinstance(data, dict) else data
+
+        if isinstance(data, dict):
+            return data.get("data", [])
+        return data
 
     def create_link(self, cmd):
-        cmd = cmd.strip()
+        cmd = (cmd or "").strip()
         if cmd.startswith("http"):
             return cmd
         return ""
@@ -84,14 +102,14 @@ def parse_mac_list(file):
 
 def get_token(url, mac):
     try:
-        full = f"{url}/portal.php?type=stb&action=handshake&JsHttpRequest=1-xml"
+        full = f"{url.rstrip('/')}/portal.php?type=stb&action=handshake&JsHttpRequest=1-xml"
         r = requests.get(full, headers={
             "Cookie": f"mac={mac}",
             "User-Agent": "Mozilla/5.0"
         }, timeout=5)
         data = r.json()
         return data["js"]["token"]
-    except:
+    except Exception:
         return None
 
 # ========== PLAYLIST WRITER ==========
@@ -107,7 +125,8 @@ def write_extinf(f, name, logo, group, mac, token, url):
     )
     f.write(f'#EXTVLCOPT:http-user-agent={UA}\n')
     f.write(f'#EXTVLCOPT:http-cookie=mac={mac}\n')
-    f.write(f'#EXTVLCOPT:http-header=Authorization: Bearer {token}\n')
+    if token:
+        f.write(f'#EXTVLCOPT:http-header=Authorization: Bearer {token}\n')
     f.write(f"{url}\n")
 
 # ========== GENERATOR ==========
@@ -117,21 +136,28 @@ def generate_playlist(portals, output="uktv.m3u"):
 
     print("Creating playlist file...")
 
+    total = 0
+
     with open(output, "w", encoding="utf-8") as f:
         f.write(f'#EXTM3U x-tvg-url="{EPG_URL}"\n')
         f.write(f"# UK Playlist | Generated: {now}\n\n")
-
-        total = 0
 
         for url, mac, stalker in portals:
             print(f"Processing: {url}")
 
             channels = stalker.get_channels()
+            print(f"  Channels found: {len(channels)}")
 
             for ch in channels:
+                if not isinstance(ch, dict):
+                    continue
+
                 name = ch.get("name", "")
-                group = ch.get("tv_genre", "General")
+                group = ch.get("genre_name") or ch.get("tv_genre") or "General"
                 logo = ch.get("logo", "")
+
+                # DEBUG (uncomment if needed)
+                # print(name)
 
                 if should_exclude(name, group):
                     continue
@@ -146,7 +172,7 @@ def generate_playlist(portals, output="uktv.m3u"):
                 write_extinf(f, name, logo, "UK", mac, stalker.token, stream)
                 total += 1
 
-        print(f"\n✅ uktv.m3u generated with {total} UK channels")
+    print(f"\n✅ uktv.m3u generated with {total} UK channels")
 
 # ========== MAIN ==========
 
@@ -155,7 +181,7 @@ def main():
 
     if not os.path.exists(mac_file):
         print("Mac_list.txt not found")
-        open("uktv.m3u", "w").close()  # prevent GitHub error
+        open("uktv.m3u", "w").close()
         return
 
     raw = parse_mac_list(mac_file)
@@ -164,6 +190,7 @@ def main():
 
     for url, mac in raw:
         print(f"Testing {url}")
+
         token = get_token(url, mac)
 
         if not token:
