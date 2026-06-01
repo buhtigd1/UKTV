@@ -16,9 +16,6 @@ from datetime import datetime
 
 EPG_URL = "https://epg.pw/xmltv.xml"
 
-DROP_SD = False
-SD_KEYWORDS = ["| sd", "(sd)", " sd ", "576p", "480p", "360p"]
-
 EXCLUDE_KEYWORDS = ["test", "xxx", "adult", "18+", "erotic"]
 
 UK_KEYWORDS = [
@@ -29,6 +26,21 @@ UK_KEYWORDS = [
     "sky sports", "sky cinema"
 ]
 
+# ========== NAME CLEANING ==========
+
+def clean_channel_name(name):
+    name = name.strip()
+
+    # ✅ keep only UK|
+    if re.match(r'^UK\|\s*', name):
+        return name
+
+    # ❌ remove ANY other prefix like DK|, US| etc.
+    name = re.sub(r'^[A-Z]{2}\|\s*', '', name)
+
+    # ✅ force UK|
+    return f"UK| {name}"
+
 # ========== FILTERS ==========
 
 def is_uk(name, group):
@@ -37,15 +49,7 @@ def is_uk(name, group):
 
 def should_exclude(name, group):
     text = (name + " " + group).lower()
-
-    if any(k in text for k in EXCLUDE_KEYWORDS):
-        return True
-
-    if DROP_SD:
-        if any(k in (" " + name.lower() + " ") for k in SD_KEYWORDS):
-            return True
-
-    return False
+    return any(k in text for k in EXCLUDE_KEYWORDS)
 
 # ========== STALKER CLIENT ==========
 
@@ -84,7 +88,6 @@ class StalkerLite:
             return data.get("data", []) or []
         return data
 
-    # ✅ CRITICAL FIX HERE
     def create_link(self, cmd):
         cmd = (cmd or "").strip()
 
@@ -92,7 +95,7 @@ class StalkerLite:
         if cmd.lower().startswith("ffmpeg "):
             cmd = cmd[7:].strip()
 
-        # extract valid URL
+        # extract URL
         match = re.search(r"https?://[^\s]+", cmd)
         if match:
             return match.group(0)
@@ -130,8 +133,10 @@ def esc(s):
     return str(s).replace('"', "&quot;")
 
 def write_extinf(f, name, logo, mac, token, url):
+    clean_name = clean_channel_name(name)
+
     f.write(
-        f'#EXTINF:-1 tvg-name="{esc(name)}" tvg-logo="{esc(logo)}" group-title="UK",{esc(name)}\n'
+        f'#EXTINF:-1 tvg-name="{esc(clean_name)}" tvg-logo="{esc(logo)}" group-title="UK",{esc(clean_name)}\n'
     )
     f.write(f'#EXTVLCOPT:http-user-agent={UA}\n')
     f.write(f'#EXTVLCOPT:http-cookie=mac={mac}\n')
@@ -145,7 +150,6 @@ def generate_playlist(portals, output="uktv.m3u"):
     now = datetime.now().isoformat()
 
     print("Creating playlist file...")
-
     total = 0
 
     with open(output, "w", encoding="utf-8") as f:
@@ -184,7 +188,7 @@ def generate_playlist(portals, output="uktv.m3u"):
 # ========== MAIN ==========
 
 def main():
-    mac_file = sys.argv[1] if len(sys.argv) > 1 else "mac_list.txt"
+    mac_file = sys.argv[1] if len(sys.argv) > 1 else "Mac_list.txt"
 
     if not os.path.exists(mac_file):
         print("Mac_list.txt not found")
@@ -192,7 +196,6 @@ def main():
         return
 
     raw = parse_mac_list(mac_file)
-
     portals = []
 
     for url, mac in raw:
