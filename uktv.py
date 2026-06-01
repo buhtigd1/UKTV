@@ -153,7 +153,7 @@ def generate_playlist(portals, output="uktv.m3u"):
     total = 0
 
     with open(output, "w", encoding="utf-8") as f:
-        f.write(f'#EXTM3U x-tvg-url="{EPG_URL}"\n')
+        f.write(f'#EXTM3U url-tvg="{EPG_URL}"\n')
         f.write(f"# UK Playlist | Generated: {now}\n\n")
 
         for url, mac, stalker in portals:
