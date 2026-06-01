@@ -8,6 +8,7 @@ Output:
 
 import os
 import sys
+import re
 import requests
 from datetime import datetime
 
@@ -20,7 +21,6 @@ SD_KEYWORDS = ["| sd", "(sd)", " sd ", "576p", "480p", "360p"]
 
 EXCLUDE_KEYWORDS = ["test", "xxx", "adult", "18+", "erotic"]
 
-# ✅ Strong UK detection
 UK_KEYWORDS = [
     "uk", "gb", "eng", "english",
     "bbc", "itv", "sky", "bt sport",
@@ -76,17 +76,27 @@ class StalkerLite:
     def get_channels(self):
         url = f"{self.base_url}/portal.php?type=itv&action=get_all_channels&JsHttpRequest=1-xml"
         data = self._get(url)
+
         if not data:
             return []
 
         if isinstance(data, dict):
-            return data.get("data", [])
+            return data.get("data", []) or []
         return data
 
+    # ✅ CRITICAL FIX HERE
     def create_link(self, cmd):
         cmd = (cmd or "").strip()
-        if cmd.startswith("http"):
-            return cmd
+
+        # remove ffmpeg prefix
+        if cmd.lower().startswith("ffmpeg "):
+            cmd = cmd[7:].strip()
+
+        # extract valid URL
+        match = re.search(r"https?://[^\s]+", cmd)
+        if match:
+            return match.group(0)
+
         return ""
 
 # ========== HELPERS ==========
@@ -119,9 +129,9 @@ UA = "Mozilla/5.0"
 def esc(s):
     return str(s).replace('"', "&quot;")
 
-def write_extinf(f, name, logo, group, mac, token, url):
+def write_extinf(f, name, logo, mac, token, url):
     f.write(
-        f'#EXTINF:-1 tvg-name="{esc(name)}" tvg-logo="{esc(logo)}" group-title="{group}",{esc(name)}\n'
+        f'#EXTINF:-1 tvg-name="{esc(name)}" tvg-logo="{esc(logo)}" group-title="UK",{esc(name)}\n'
     )
     f.write(f'#EXTVLCOPT:http-user-agent={UA}\n')
     f.write(f'#EXTVLCOPT:http-cookie=mac={mac}\n')
@@ -156,9 +166,6 @@ def generate_playlist(portals, output="uktv.m3u"):
                 group = ch.get("genre_name") or ch.get("tv_genre") or "General"
                 logo = ch.get("logo", "")
 
-                # DEBUG (uncomment if needed)
-                # print(name)
-
                 if should_exclude(name, group):
                     continue
 
@@ -169,7 +176,7 @@ def generate_playlist(portals, output="uktv.m3u"):
                 if not stream:
                     continue
 
-                write_extinf(f, name, logo, "UK", mac, stalker.token, stream)
+                write_extinf(f, name, logo, mac, stalker.token, stream)
                 total += 1
 
     print(f"\n✅ uktv.m3u generated with {total} UK channels")
@@ -177,7 +184,7 @@ def generate_playlist(portals, output="uktv.m3u"):
 # ========== MAIN ==========
 
 def main():
-    mac_file = sys.argv[1] if len(sys.argv) > 1 else "Mac_list.txt"
+    mac_file = sys.argv[1] if len(sys.argv) > 1 else "mac_list.txt"
 
     if not os.path.exists(mac_file):
         print("Mac_list.txt not found")
