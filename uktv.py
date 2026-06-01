@@ -3,7 +3,7 @@
 Stalker to M3U converter
 
 Output:
-  uktv.m3u - UK live TV
+  uktv.m3u - UK live TV with tvg-id (EPG support)
 """
 
 import os
@@ -31,14 +31,10 @@ UK_KEYWORDS = [
 def clean_channel_name(name):
     name = name.strip()
 
-    # ✅ keep only UK|
     if re.match(r'^UK\|\s*', name):
         return name
 
-    # ❌ remove ANY other prefix like DK|, US| etc.
     name = re.sub(r'^[A-Z]{2}\|\s*', '', name)
-
-    # ✅ force UK|
     return f"UK| {name}"
 
 # ========== FILTERS ==========
@@ -91,11 +87,9 @@ class StalkerLite:
     def create_link(self, cmd):
         cmd = (cmd or "").strip()
 
-        # remove ffmpeg prefix
         if cmd.lower().startswith("ffmpeg "):
             cmd = cmd[7:].strip()
 
-        # extract URL
         match = re.search(r"https?://[^\s]+", cmd)
         if match:
             return match.group(0)
@@ -132,11 +126,13 @@ UA = "Mozilla/5.0"
 def esc(s):
     return str(s).replace('"', "&quot;")
 
-def write_extinf(f, name, logo, mac, token, url):
+def write_extinf(f, name, logo, mac, token, url, tvg_id=None):
     clean_name = clean_channel_name(name)
 
+    tvg_id_attr = f' tvg-id="{esc(tvg_id)}"' if tvg_id else ""
+
     f.write(
-        f'#EXTINF:-1 tvg-name="{esc(clean_name)}" tvg-logo="{esc(logo)}" group-title="UK",{esc(clean_name)}\n'
+        f'#EXTINF:-1{tvg_id_attr} tvg-name="{esc(clean_name)}" tvg-logo="{esc(logo)}" group-title="UK",{esc(clean_name)}\n'
     )
     f.write(f'#EXTVLCOPT:http-user-agent={UA}\n')
     f.write(f'#EXTVLCOPT:http-cookie=mac={mac}\n')
@@ -148,13 +144,13 @@ def write_extinf(f, name, logo, mac, token, url):
 
 def generate_playlist(portals, output="uktv.m3u"):
     now = datetime.now().isoformat()
+    total = 0
 
     print("Creating playlist file...")
-    total = 0
 
     with open(output, "w", encoding="utf-8") as f:
         f.write(f'#EXTM3U url-tvg="{EPG_URL}"\n')
-        f.write(f"# UK Playlist | Generated: {now}\n\n")
+        f.write(f"# Generated: {now}\n\n")
 
         for url, mac, stalker in portals:
             print(f"Processing: {url}")
@@ -180,7 +176,15 @@ def generate_playlist(portals, output="uktv.m3u"):
                 if not stream:
                     continue
 
-                write_extinf(f, name, logo, mac, stalker.token, stream)
+                # ✅ Extract tvg-id properly
+                tvg_id = (
+                    ch.get("xmltv_id")
+                    or ch.get("epg_id")
+                    or ch.get("id")
+                    or ch.get("ch_id")
+                )
+
+                write_extinf(f, name, logo, mac, stalker.token, stream, tvg_id)
                 total += 1
 
     print(f"\n✅ uktv.m3u generated with {total} UK channels")
