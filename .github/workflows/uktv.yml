@@ -1,0 +1,50 @@
+name: ▶️ Generate UKTV Playlist
+
+on:
+  schedule:
+    - cron: '0 */4 * * *'   # Every 4 hours
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run UKTV script
+        run: python uktv.py
+
+      - name: Commit and push uktv.m3u
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+          # Authenticate with repo
+          git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}
+
+          # ✅ Add all files safely (prevents pathspec error)
+          git add -A
+
+          # ✅ Commit only if there are changes
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update uktv.m3u $(date -u +'%Y-%m-%d %H:%M UTC')"
+
+          # ✅ Pull latest changes and push
+          git pull --rebase origin ${{ github.ref_name }}
+          git push origin ${{ github.ref_name }} || echo "No changes to push"
