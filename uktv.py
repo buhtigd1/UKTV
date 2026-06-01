@@ -188,10 +188,10 @@ def generate_playlist(portals, output="uktv.m3u"):
 # ========== MAIN ==========
 
 def main():
-    mac_file = sys.argv[1] if len(sys.argv) > 1 else "Mac_list.txt"
+    mac_file = sys.argv[1] if len(sys.argv) > 1 else "mac_list.txt"
 
     if not os.path.exists(mac_file):
-        print("Mac_list.txt not found")
+        print("mac_list.txt not found")
         open("uktv.m3u", "w").close()
         return
 
