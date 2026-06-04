@@ -195,12 +195,10 @@ def generate_playlist(portals, output="uktv.m3u"):
                 if not stream:
                     continue
 
-                # Portal-provided ID first
+                # Only use xmltv_id/epg_id from portal
                 tvg_id = (
                     ch.get("xmltv_id")
                     or ch.get("epg_id")
-                    or ch.get("id")
-                    or ch.get("ch_id")
                 )
 
                 # If missing, inject from EPG map (exact normalized match)
