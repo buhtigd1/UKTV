@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Stalker to M3U converter with EPG tvg-id injection
+Stalker to M3U converter with EPG tvg-id injection (Open-EPG source)
 
 Output:
   uktv.m3u - UK live TV with tvg-id (EPG support)
@@ -16,7 +16,7 @@ from datetime import datetime
 
 # ========== CONFIG ==========
 
-EPG_URL = "https://epg.pw/xmltv/epg_GB.xml.gz"
+EPG_URL = "https://www.open-epg.com/files/unitedkingdom.xml.gz"
 
 EXCLUDE_KEYWORDS = ["test", "xxx", "adult", "18+", "erotic"]
 
