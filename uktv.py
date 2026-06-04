@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Stalker to M3U converter
+Stalker to M3U converter with EPG tvg-id injection
 
 Output:
   uktv.m3u - UK live TV with tvg-id (EPG support)
@@ -9,7 +9,9 @@ Output:
 import os
 import sys
 import re
+import gzip
 import requests
+import xml.etree.ElementTree as ET
 from datetime import datetime
 
 # ========== CONFIG ==========
@@ -26,16 +28,24 @@ UK_KEYWORDS = [
     "sky sports", "sky cinema"
 ]
 
+UA = "Mozilla/5.0"
+
 # ========== NAME CLEANING ==========
 
 def clean_channel_name(name):
     name = name.strip()
-
     if re.match(r'^UK\|\s*', name):
         return name
-
     name = re.sub(r'^[A-Z]{2}\|\s*', '', name)
     return f"UK| {name}"
+
+def normalize_name(name: str) -> str:
+    n = name.lower().strip()
+    n = re.sub(r'\s*hd$', '', n)
+    n = re.sub(r'\s*\+1$', '', n)
+    n = re.sub(r'[^a-z0-9\s]', '', n)
+    n = re.sub(r'\s+', ' ', n)
+    return n.strip()
 
 # ========== FILTERS ==========
 
@@ -58,7 +68,7 @@ class StalkerLite:
 
     def _headers(self):
         return {
-            "User-Agent": "Mozilla/5.0",
+            "User-Agent": UA,
             "Cookie": f"mac={self.mac}; stb_lang=en; timezone=GMT",
             "Authorization": f"Bearer {self.token}"
         }
@@ -76,24 +86,19 @@ class StalkerLite:
     def get_channels(self):
         url = f"{self.base_url}/portal.php?type=itv&action=get_all_channels&JsHttpRequest=1-xml"
         data = self._get(url)
-
         if not data:
             return []
-
         if isinstance(data, dict):
             return data.get("data", []) or []
         return data
 
     def create_link(self, cmd):
         cmd = (cmd or "").strip()
-
         if cmd.lower().startswith("ffmpeg "):
             cmd = cmd[7:].strip()
-
         match = re.search(r"https?://[^\s]+", cmd)
         if match:
             return match.group(0)
-
         return ""
 
 # ========== HELPERS ==========
@@ -112,25 +117,19 @@ def get_token(url, mac):
         full = f"{url.rstrip('/')}/portal.php?type=stb&action=handshake&JsHttpRequest=1-xml"
         r = requests.get(full, headers={
             "Cookie": f"mac={mac}",
-            "User-Agent": "Mozilla/5.0"
+            "User-Agent": UA
         }, timeout=5)
         data = r.json()
         return data["js"]["token"]
     except Exception:
         return None
 
-# ========== PLAYLIST WRITER ==========
-
-UA = "Mozilla/5.0"
-
 def esc(s):
     return str(s).replace('"', "&quot;")
 
 def write_extinf(f, name, logo, mac, token, url, tvg_id=None):
     clean_name = clean_channel_name(name)
-
     tvg_id_attr = f' tvg-id="{esc(tvg_id)}"' if tvg_id else ""
-
     f.write(
         f'#EXTINF:-1{tvg_id_attr} tvg-name="{esc(clean_name)}" tvg-logo="{esc(logo)}" group-title="UK",{esc(clean_name)}\n'
     )
@@ -140,9 +139,31 @@ def write_extinf(f, name, logo, mac, token, url, tvg_id=None):
         f.write(f'#EXTVLCOPT:http-header=Authorization: Bearer {token}\n')
     f.write(f"{url}\n")
 
+# ========== EPG LOADER ==========
+
+def load_epg_map(epg_url=EPG_URL):
+    epg_map = {}
+    try:
+        r = requests.get(epg_url, timeout=10)
+        r.raise_for_status()
+        data = gzip.decompress(r.content)
+        root = ET.fromstring(data)
+        for ch in root.findall("channel"):
+            tvg_id = ch.attrib.get("id")
+            display_name = ch.findtext("display-name")
+            if tvg_id and display_name:
+                epg_map[normalize_name(display_name)] = tvg_id
+    except Exception as e:
+        print("EPG load failed:", e)
+    return epg_map
+
+def find_tvg_id(epg_map, name):
+    return epg_map.get(normalize_name(name))
+
 # ========== GENERATOR ==========
 
 def generate_playlist(portals, output="uktv.m3u"):
+    epg_map = load_epg_map()
     now = datetime.now().isoformat()
     total = 0
 
@@ -154,7 +175,6 @@ def generate_playlist(portals, output="uktv.m3u"):
 
         for url, mac, stalker in portals:
             print(f"Processing: {url}")
-
             channels = stalker.get_channels()
             print(f"  Channels found: {len(channels)}")
 
@@ -168,7 +188,6 @@ def generate_playlist(portals, output="uktv.m3u"):
 
                 if should_exclude(name, group):
                     continue
-
                 if not is_uk(name, group):
                     continue
 
@@ -176,13 +195,17 @@ def generate_playlist(portals, output="uktv.m3u"):
                 if not stream:
                     continue
 
-                # ✅ Extract tvg-id properly
+                # Portal-provided ID first
                 tvg_id = (
                     ch.get("xmltv_id")
                     or ch.get("epg_id")
                     or ch.get("id")
                     or ch.get("ch_id")
                 )
+
+                # If missing, inject from EPG map (exact normalized match)
+                if not tvg_id:
+                    tvg_id = find_tvg_id(epg_map, name)
 
                 write_extinf(f, name, logo, mac, stalker.token, stream, tvg_id)
                 total += 1
@@ -193,7 +216,6 @@ def generate_playlist(portals, output="uktv.m3u"):
 
 def main():
     mac_file = sys.argv[1] if len(sys.argv) > 1 else "mac_list.txt"
-
     if not os.path.exists(mac_file):
         print("mac_list.txt not found")
         open("uktv.m3u", "w").close()
@@ -204,13 +226,10 @@ def main():
 
     for url, mac in raw:
         print(f"Testing {url}")
-
         token = get_token(url, mac)
-
         if not token:
             print(" -> failed")
             continue
-
         print(" -> OK")
         stalker = StalkerLite(url, mac, token)
         portals.append((url, mac, stalker))
