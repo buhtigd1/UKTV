@@ -2,49 +2,44 @@ name: Generate UKTV Playlist
 
 on:
   schedule:
-    - cron: "* */3 * * *"
+    - cron: "0 */3 * * *"   # every 3 hours
   workflow_dispatch:
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+permissions:
+  contents: write
 
-    permissions:
-      contents: write
+jobs:
+  generate:
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install requests
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
 
-      - name: Run UKTV script
+      - name: Generate uktv.m3u
         run: python uktv.py
 
-      - name: Commit and push uktv.m3u
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit updated playlist
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Authenticate with repo
-          git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}
+          git add uktv.m3u
 
-          # ✅ Add all files safely (prevents pathspec error)
-          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes detected"
+            exit 0
+          fi
 
-          # ✅ Commit only if there are changes
-          git diff --quiet && git diff --staged --quiet || git commit -m "Update $(date -u +'%Y-%m-%d %H:%M UTC')"
-
-          # ✅ Pull latest changes and push
-          git pull --rebase origin ${{ github.ref_name }}
-          git push origin ${{ github.ref_name }} || echo "No changes to push"
+          git commit -m "Update $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git push
